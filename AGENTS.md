@@ -34,15 +34,46 @@ triggers `npm ci`. The repo root is bind-mounted at `/app`, so source edits hot-
   `BASE44_PREVIEW_MODE === '1'`; with the flag unset Vite's own defaults apply.**
   1. `server.allowedHosts` gets the `.<BASE44_SANDBOX_HOST_DOMAIN>` wildcard — the
      preview proxy sends `Host: <port>-<sandbox id>.<domain>`, and Vite answers 403
-     for unknown hosts. Verify with `curl -H "Host: 3000-probe.$BASE44_SANDBOX_HOST_DOMAIN"`.
-  2. `server.cors` reflects the request origin. **This one is essential, not
-     cosmetic.** Vite 6 only returns `Access-Control-Allow-Origin` for localhost
-     origins by default, and the preview browsers treat both `<script type="module">`
-     and `fetch()` as CORS-mode requests. Without the header, the HTML document loads
-     but every module fails to load, leaving `#root` empty with
-     "Failed to load module @vite/client" in the console and no Vite error overlay.
-     Symptom to remember: **classic `<script src>` succeeds while module scripts and
-     `fetch` fail → missing CORS headers, not a broken build.**
+     for unknown hosts. Verified working: the sandbox host gets 200, a bogus host 403.
+  2. `server.cors` emits `Access-Control-Allow-Origin: *`, because Vite 6 only emits
+     CORS headers for localhost origins by default. This is a safety net, **not a
+     confirmed fix** — see the open issue below.
+
+## Open issue: preview iframe cannot load the app's scripts (unresolved)
+
+Observed in a Safari preview session: the app boots and serves correct content over
+HTTP (verified end-to-end through the preview proxy with `curl`, including headers),
+but inside the preview iframe `#root` stays empty with
+`Failed to load module @vite/client` / `src/main.jsx` in the console and no Vite error
+overlay.
+
+What was measured from inside the iframe (`preview_execute_code`):
+
+| Request from the iframe | Result |
+| --- | --- |
+| document navigation to `/` | loads |
+| classic `<script src>` to the app (no-cors) | loads, and Vite-transformed files execute |
+| `fetch()` to the app (any path, incl. `/`) | `TypeError: Load failed` |
+| classic `<script crossorigin>` to the app (CORS mode) | error |
+| `<script type="module">` to the app | error |
+| `fetch(..., { mode: 'no-cors' })` to the app | succeeds (opaque) |
+| `fetch`/module/classic to `cdn.jsdelivr.net` | all succeed |
+
+So **every CORS-mode request to the app fails while no-cors requests to the same URLs
+succeed** — and cross-origin requests from the same page work fine. Ruled out along
+the way: `allowedHosts` (the document loads, same Host), CORS header value
+(`Access-Control-Allow-Origin: *` is present on every request path through the proxy
+and the failure is unchanged), chunked encoding (the document and classic scripts are
+chunked too), a document `<base>`, a service worker, and CSP violations (none
+reported). Re-running from the platform's own `navigate()` helper reloads the page and
+reproduces it.
+
+Conclusion: this looks like an environment/browser condition on the preview path, not
+app code — no Vite/app configuration change can prevent a browser from refusing
+CORS-mode requests. **Do not "fix" it by switching to a classic-script bundle:**
+same-origin classic scripts do not reliably execute there either, so it would not help.
+Next step for a human is to try the preview in a different browser and/or disable
+content blockers and privacy extensions for the preview domain.
 
 - `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` (`.e2b.app`) is supplied by the platform and
   passed through bare in compose; `server.watch.usePolling` is on because bind mounts

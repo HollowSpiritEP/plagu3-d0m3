@@ -16,11 +16,12 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
     allowedHosts,
-    // Vite 6 only reflects CORS headers for localhost origins by default, so the
-    // preview host gets none. Module scripts and fetch() are CORS-mode requests,
-    // and the preview browser refuses them without those headers. Scoped to the
-    // preview only; with the flag unset Vite's own default applies.
-    cors: previewMode ? { origin: true, credentials: true } : undefined,
+    // Vite 6 only emits CORS headers for localhost origins by default, so the
+    // preview host gets none. Module scripts and fetch() are CORS-mode requests
+    // and the preview browser refuses them without an allow-origin header, so
+    // emit a static wildcard that no longer depends on the request's Origin
+    // header. Scoped to the preview; with the flag unset Vite's default applies.
+    cors: previewMode ? { origin: '*' } : undefined,
     // Bind mounts often miss inotify events; poll so hot reload always fires.
     watch: { usePolling: true, interval: 300 },
   },
