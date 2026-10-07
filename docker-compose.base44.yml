@@ -1,0 +1,51 @@
+# Base44 sandbox/dev environment for The PlAGU3 D0M3.
+#
+# Runs the Vite dev server straight from the cloned source (bind-mounted at
+# /app) so edits appear without rebuilding an image. Dependencies live in a
+# named volume and are synced from package-lock.json on container start.
+#
+# Port 3000 is the user-facing web entry point.
+services:
+  web:
+    image: node:22
+    working_dir: /app
+    command:
+      - sh
+      - -ec
+      - |
+        stamp=node_modules/.base44-install-stamp
+        want=$$(sha256sum package-lock.json | cut -d' ' -f1)
+        if [ ! -f "$$stamp" ] || [ "$$(cat "$$stamp")" != "$$want" ]; then
+          echo "Syncing dependencies from package-lock.json..."
+          npm ci
+          printf '%s' "$$want" > "$$stamp"
+        fi
+        exec npm run dev -- --host 0.0.0.0 --port 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - web_node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      # Base44 sets BASE44_PREVIEW_MODE=1 in the sandbox; passed through bare so
+      # vite.config.js can extend the host allowlist only in the preview.
+      - BASE44_PREVIEW_MODE
+      - BASE44_SANDBOX_HOST_DOMAIN
+      - BASE44_PUBLIC_HOST_SUFFIX
+      # Vite >= 6.1 appends this to server.allowedHosts; supplied by Base44.
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+      # Reliable file watching across bind mounts.
+      - CHOKIDAR_USEPOLLING=true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 120s
+    restart: on-failure
+
+volumes:
+  web_node_modules:
