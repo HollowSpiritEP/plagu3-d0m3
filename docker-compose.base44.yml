@@ -20,7 +20,9 @@ services:
           npm ci
           printf '%s' "$$want" > "$$stamp"
         fi
-        exec npm run dev -- --host 0.0.0.0 --port 3000
+        # Exec Vite directly so an intentional container stop does not make npm
+        # report its child process's SIGTERM as an application error.
+        exec ./node_modules/.bin/vite --host 0.0.0.0 --port 3000
     ports:
       - "3000:3000"
     volumes:
